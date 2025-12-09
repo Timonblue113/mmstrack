@@ -1,56 +1,172 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
-<title>Scan Barcode KM</title>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tra cứu SKU / UPC / Barcode 13</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2/dist/fuse.min.js"></script>
+
+<!-- Barcode Scanner -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+
 <style>
-body { font-family: Arial; padding: 20px; }
-video { width: 100%; border: 2px solid #333; border-radius: 12px; }
-#result { margin-top: 20px; font-size: 20px; }
+  .suggestions { max-height: 260px; overflow-y: auto; position: absolute; z-index: 50; width: 100%; }
+  .suggestion-item:hover { background: #eef2ff; cursor: pointer; }
+  .table-scroll { max-height: 500px; overflow: auto; }
+  tr:hover { background-color: #f0f9ff; }
+  .wrap-text { white-space: normal; word-wrap: break-word; }
+
+  /* Camera View */
+  #scanner {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85);
+    z-index: 9999;
+    padding-top: 60px;
+  }
+  #scanner video { width: 100%; }
 </style>
 </head>
+<body class="bg-slate-50 text-slate-800">
 
-<body>
-<h2>📸 Quét mã Barcode</h2>
+<div class="max-w-6xl mx-auto p-6">
 
-<div id="scanner-container"></div>
-<div id="result"></div>
+  <header class="flex justify-between items-start mb-4">
+    <h1 class="text-2xl font-semibold">Tra cứu Hàng hóa — SKU / UPC / Barcode 13</h1>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <button id="scanBtn"
+      class="px-3 py-2 bg-green-600 text-white rounded-md text-sm">
+      📷 Quét mã vạch
+    </button>
+  </header>
+
+  <!-- CAMERA SCANNER -->
+  <div id="scanner">
+    <button id="closeScanner"
+      class="absolute top-4 right-4 bg-red-600 text-white px-4 py-2 rounded">
+      Đóng
+    </button>
+    <div id="scanner-container"></div>
+  </div>
+
+  <!-- SEARCH BOX -->
+  <div class="bg-white p-4 rounded-lg shadow-sm relative">
+    <div class="flex gap-2">
+      <input id="searchBox" placeholder="Nhập SKU / UPC / Tên / Barcode 13..."
+             class="flex-1 p-3 border rounded-md" />
+
+      <button id="searchBtn" class="px-4 py-2 bg-blue-600 text-white rounded-md">
+        Tìm
+      </button>
+    </div>
+
+    <div id="suggestions" class="suggestions bg-white border rounded-md hidden"></div>
+
+    <p id="stats" class="mt-2 text-sm text-slate-600">Đang tải dữ liệu...</p>
+
+    <div id="tableWrap" class="table-scroll border rounded-md mt-3"></div>
+  </div>
+
+</div>
+
 <script>
+/* ------------------- SCAN BARCODE 13 ------------------- */
+
 function startScanner() {
-    Quagga.init({
-        inputStream: {
-            name: "Live",
-            type: "LiveStream",
-            target: document.querySelector("#scanner-container"),
-            constraints: { facingMode: "environment" }
-        },
-        decoder: { readers: ["ean_reader"] }
-    }, function(err) {
-        if (err) { console.error(err); return; }
-        Quagga.start();
-    });
+  document.getElementById("scanner").style.display = "block";
 
-    Quagga.onDetected(async function(data) {
-        let code = data.codeResult.code;
-        document.getElementById("result").innerHTML = "Đang gửi mã: " + code;
+  Quagga.init({
+    inputStream: {
+      name: "Live",
+      type: "LiveStream",
+      target: document.querySelector("#scanner-container"),
+      constraints: { facingMode: "environment" }
+    },
+    decoder: { readers: ["ean_reader"] } // EAN-13
+  }, function(err) {
+    if (err) { console.error(err); return; }
+    Quagga.start();
+  });
 
-        let api = "http://10.145.1.79:5000/scan";
-
-        let res = await fetch(api, {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({code})
-        });
-
-        let json = await res.json();
-        document.getElementById("result").innerHTML =
-            "<pre>" + JSON.stringify(json, null, 2) + "</pre>";
-    });
+  Quagga.onDetected(data => {
+    let code = data.codeResult.code;
+    if (code && code.length === 13) {
+      Quagga.stop();
+      document.getElementById("scanner").style.display = "none";
+      searchBox.value = code;        // gán vào ô tìm kiếm
+      executeSearch();               // auto tìm
+    }
+  });
 }
 
-startScanner();
+scanBtn.onclick = startScanner;
+closeScanner.onclick = () => {
+  Quagga.stop();
+  document.getElementById("scanner").style.display = "none";
+};
+
+/* ------------------- CODE TÌM KIẾM GỐC (GIỮ NGUYÊN) ------------------- */
+
+let DATA = [], results = [], ready=false;
+const normalize = s=>(s||"").toLowerCase();
+
+/* Load Data CSV */
+async function loadFromGoogleSheet(url){
+  const res = await fetch(url);
+  const csv = await res.text();
+  const wb = XLSX.read(csv, {type:"string"});
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  DATA = XLSX.utils.sheet_to_json(sheet).map(r=>({
+    name: String(r["Tên"]||""), 
+    sku:  String(r["SKU"]||""), 
+    upc:  String(r["UPC"]||""), 
+    ton:  String(r["Tồn"]||""), 
+    gia:  String(r["Giá"]||""), 
+    _search: normalize((r["Tên"]+" "+r["SKU"]+" "+r["UPC"]))
+  }));
+  ready = true;
+  stats.textContent = `Đã nạp ${DATA.length} dòng`;
+}
+
+loadFromGoogleSheet("YOUR_GOOGLE_SHEET_CSV_LINK");
+
+/* Search */
+function executeSearch(){
+  if (!ready) return;
+  const q = normalize(searchBox.value.trim());
+  if (!q) return;
+
+  results = DATA.filter(r => r._search.includes(q));
+  renderResults();
+}
+
+/* Render Table */
+function renderResults(){
+  if (!results.length) {
+    tableWrap.innerHTML = `<p class="p-3 text-sm">Không tìm thấy.</p>`;
+    return;
+  }
+
+  let html = `<table class="min-w-full text-sm">
+  <tr><th>#</th><th>SKU</th><th>UPC</th><th>Tên</th><th>Tồn</th><th>Giá</th></tr>`;
+
+  results.forEach((r,i)=>{
+    html += `<tr><td>${i+1}</td><td>${r.sku}</td><td>${r.upc}</td>
+             <td>${r.name}</td><td>${r.ton}</td><td>${r.gia}</td></tr>`;
+  });
+
+  html += `</table>`;
+  tableWrap.innerHTML = html;
+}
+
+searchBtn.onclick = executeSearch;
+searchBox.onkeydown = e => { if(e.key==="Enter") executeSearch(); };
+
 </script>
 </body>
 </html>
