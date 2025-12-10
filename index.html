@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <title>Scan Barcode / Nhập SKU</title>
 <style>
-    body { font-family: Arial; padding: 20px; }
-    input, button { padding: 10px; font-size: 18px; margin-top: 10px; width: 100%; }
-    #result-box { margin-top: 20px; padding: 15px; border: 1px solid #ccc; }
+body { font-family: Arial; padding: 20px; }
+input, button { padding: 10px; font-size: 18px; margin-top: 10px; width: 100%; }
+#result-box { margin-top: 20px; padding: 15px; border: 1px solid #ccc; }
 </style>
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -20,14 +20,13 @@
 
 <h3>2️⃣ Hoặc nhập SKU (7 số)</h3>
 <input id="manualCode" placeholder="Nhập mã 7 số…" maxlength="13">
-
 <button onclick="submitCode()">Tra cứu</button>
 
 <div id="result-box"></div>
 <button onclick="exportExcel()">📁 Xuất Excel</button>
 
 <script>
-const SERVER_URL = "http://10.145.1.79:5000/api/scan";  // ĐỔI IP NÀY
+const SERVER_URL = "http://10.145.1.79:5000/api/scan"; // đổi IP theo server
 
 let lastResult = null;
 
@@ -64,6 +63,8 @@ async function submitCode() {
         <b>GIÁ GỐC:</b> ${data.giagoc}<br>
         <b>GIÁ BÁN:</b> ${data.giaban}<br>
         <b>KM:</b> ${data.km}<br>
+        <b>Ngày BD:</b> ${data.ngaybd}<br>
+        <b>Ngày KT:</b> ${data.ngaykt}<br>
     `;
 }
 
@@ -72,11 +73,9 @@ async function submitCode() {
 // ==========================
 function exportExcel() {
     if (!lastResult) return alert("Không có dữ liệu để xuất Excel!");
-
     let ws = XLSX.utils.json_to_sheet([lastResult]);
     let wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "DATA");
-
     XLSX.writeFile(wb, "scan_result.xlsx");
 }
 </script>
