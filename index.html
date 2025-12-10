@@ -6,7 +6,10 @@
 <style>
 body { font-family: Arial; padding: 20px; }
 input, button { padding: 10px; font-size: 18px; margin-top: 10px; width: 100%; }
-#result-box { margin-top: 20px; padding: 15px; border: 1px solid #ccc; }
+#result-box { margin-top: 20px; max-height: 500px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+th { background-color: #f0f0f0; }
 </style>
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -22,13 +25,29 @@ input, button { padding: 10px; font-size: 18px; margin-top: 10px; width: 100%; }
 <input id="manualCode" placeholder="Nhập mã 7 số…" maxlength="13">
 <button onclick="submitCode()">Tra cứu</button>
 
-<div id="result-box"></div>
+<div id="result-box">
+    <table id="result-table">
+        <thead>
+            <tr>
+                <th>SKU</th>
+                <th>Tên SP</th>
+                <th>Giá gốc</th>
+                <th>Giá bán</th>
+                <th>KM</th>
+                <th>Ngày BD</th>
+                <th>Ngày KT</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+</div>
+
 <button onclick="exportExcel()">📁 Xuất Excel</button>
 
 <script>
 const SERVER_URL = "http://10.145.1.79:5000/api/scan"; // đổi IP theo server
-
-let lastResult = null;
+let allResults = []; // lưu tất cả kết quả
 
 // ==========================
 // 🔥 SCAN BARCODE
@@ -48,35 +67,49 @@ async function submitCode() {
     let code = document.getElementById("manualCode").value.trim();
     if (!code) return alert("Chưa nhập mã!");
 
-    const res = await fetch(SERVER_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code })
-    });
+    try {
+        const res = await fetch(SERVER_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code })
+        });
 
-    const data = await res.json();
-    lastResult = data;
+        const data = await res.json();
+        allResults.push(data); // cộng dồn kết quả
 
-    document.getElementById("result-box").innerHTML = `
-        <b>SKU:</b> ${data.sku}<br>
-        <b>TÊN SP:</b> ${data.tensp}<br>
-        <b>GIÁ GỐC:</b> ${data.giagoc}<br>
-        <b>GIÁ BÁN:</b> ${data.giaban}<br>
-        <b>KM:</b> ${data.km}<br>
-        <b>Ngày BD:</b> ${data.ngaybd}<br>
-        <b>Ngày KT:</b> ${data.ngaykt}<br>
-    `;
+        // hiển thị trong bảng
+        const tbody = document.querySelector("#result-table tbody");
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${data.sku || ""}</td>
+            <td>${data.tensp || ""}</td>
+            <td>${data.giagoc || ""}</td>
+            <td>${data.giaban || ""}</td>
+            <td>${data.km || ""}</td>
+            <td>${data.ngaybd || ""}</td>
+            <td>${data.ngaykt || ""}</td>
+        `;
+        tbody.appendChild(tr);
+
+        // xoá input sau khi tra xong
+        document.getElementById("manualCode").value = "";
+
+    } catch (err) {
+        alert("Lỗi khi gọi server: " + err);
+        console.error(err);
+    }
 }
 
 // ==========================
 // 🔥 XUẤT EXCEL
 // ==========================
 function exportExcel() {
-    if (!lastResult) return alert("Không có dữ liệu để xuất Excel!");
-    let ws = XLSX.utils.json_to_sheet([lastResult]);
-    let wb = XLSX.utils.book_new();
+    if (allResults.length === 0) return alert("Không có dữ liệu để xuất Excel!");
+
+    const ws = XLSX.utils.json_to_sheet(allResults);
+    const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "DATA");
-    XLSX.writeFile(wb, "scan_result.xlsx");
+    XLSX.writeFile(wb, "scan_results.xlsx");
 }
 </script>
 
