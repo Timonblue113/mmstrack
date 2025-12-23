@@ -103,20 +103,39 @@ async function submitCode() {
 // ==========================
 // 🔥 XUẤT EXCEL
 // ==========================
+<script>
 function exportExcel() {
-    if (allResults.length === 0) return alert("Không có dữ liệu để xuất Excel!");
+    if (allResults.length === 0) {
+        alert("Không có dữ liệu để xuất Excel!");
+        return;
+    }
 
-    const ws = XLSX.utils.json_to_sheet(allResults);
+    // Thứ tự cột mong muốn
+    const headers = [
+        "SKU",
+        "Tên SP",
+        "Giá gốc",
+        "Giá bán",
+        "KM",
+        "Ngày BD",
+        "Ngày KT"
+    ];
+
+    // Chuyển data theo đúng thứ tự
+    const rows = allResults.map(item => [
+        item.sku || "",
+        item.tensp || "",
+        item.giagoc || "",
+        item.giaban || "",
+        item.km || "",
+        item.ngaybd || "",
+        item.ngaykt || ""
+    ]);
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "DATA");
+
     XLSX.writeFile(wb, "scan_results.xlsx");
 }
-   document.getElementById("manualCode").addEventListener("keyup", function(event) {
-    if (event.key === "Enter") {
-        submitCode();
-    }
-});
 </script>
-
-</body>
-</html>
