@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>Scan Barcode / Nhập SKU</title>
+
 <style>
 body { font-family: Arial; padding: 20px; }
 input, button { padding: 10px; font-size: 18px; margin-top: 10px; width: 100%; }
@@ -10,44 +11,51 @@ input, button { padding: 10px; font-size: 18px; margin-top: 10px; width: 100%; }
 table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
 th { background-color: #f0f0f0; }
+#progress { margin-top: 10px; font-weight: bold; }
 </style>
+
 <script src="https://unpkg.com/html5-qrcode"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
+
 <body>
 
 <h2>📦 TRA CỨU SẢN PHẨM</h2>
 
-<h3>1️⃣ Quét mã Barcode (EAN-13)</h3>
+<h3>1️⃣ Quét mã Barcode (EAN / UPC)</h3>
 <div id="reader" style="width:300px;"></div>
 
-<h3>2️⃣ Hoặc nhập SKU (7 số)</h3>
-<input id="manualCode" placeholder="Nhập mã 7 số…" maxlength="13">
+<h3>2️⃣ Hoặc nhập SKU (Enter để tra)</h3>
+<input id="manualCode" placeholder="Nhập SKU / UPC…" maxlength="13">
 <button onclick="submitCode()">Tra cứu</button>
 
+<h3>3️⃣ Tra nhiều mã bằng file Excel</h3>
+<input type="file" id="excelFile" accept=".xlsx,.xls">
+<button onclick="importExcel()">📥 Import & Tra cứu</button>
+<div id="progress"></div>
+
 <div id="result-box">
-    <table id="result-table">
-        <thead>
-            <tr>
-                <th>SKU</th>
-                <th>Tên SP</th>
-                <th>Giá gốc</th>
-                <th>Giá bán</th>
-                <th>KM</th>
-                <th>Ngày BD</th>
-                <th>Ngày KT</th>
-            </tr>
-        </thead>
-        <tbody>
-        </tbody>
-    </table>
+<table id="result-table">
+<thead>
+<tr>
+<th>SKU</th>
+<th>Tên SP</th>
+<th>Giá gốc</th>
+<th>Giá bán</th>
+<th>KM</th>
+<th>Ngày BD</th>
+<th>Ngày KT</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
 </div>
 
 <button onclick="exportExcel()">📁 Xuất Excel</button>
 
 <script>
-const SERVER_URL = "http://10.145.2.45:5000/api/scan"; // đổi IP theo server
-let allResults = []; // lưu tất cả kết quả
+const SERVER_URL = "http://10.145.2.45:5000/api/scan";
+const scannedSet = new Set(); // chặn trùng
 
 // ==========================
 // 🔥 SCAN BARCODE
@@ -65,7 +73,13 @@ scanner.render(onScanSuccess);
 // ==========================
 async function submitCode() {
     let code = document.getElementById("manualCode").value.trim();
-    if (!code) return alert("Chưa nhập mã!");
+    if (!code) return;
+
+    if (scannedSet.has(code)) {
+        document.getElementById("manualCode").value = "";
+        return;
+    }
+    scannedSet.add(code);
 
     try {
         const res = await fetch(SERVER_URL, {
@@ -75,13 +89,11 @@ async function submitCode() {
         });
 
         const data = await res.json();
-        allResults.push(data); // cộng dồn kết quả
 
-        // hiển thị trong bảng
         const tbody = document.querySelector("#result-table tbody");
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td>${data.sku || ""}</td>
+            <td>${data.sku || code}</td>
             <td>${data.tensp || ""}</td>
             <td>${data.giagoc || ""}</td>
             <td>${data.giaban || ""}</td>
@@ -91,51 +103,70 @@ async function submitCode() {
         `;
         tbody.appendChild(tr);
 
-        // xoá input sau khi tra xong
         document.getElementById("manualCode").value = "";
 
     } catch (err) {
-        alert("Lỗi khi gọi server: " + err);
+        alert("Lỗi server!");
         console.error(err);
     }
 }
 
+// Enter để tra
+document.getElementById("manualCode").addEventListener("keyup", e => {
+    if (e.key === "Enter") submitCode();
+});
+
 // ==========================
-// 🔥 XUẤT EXCEL
+// 🔥 IMPORT EXCEL TRA NHIỀU MÃ
 // ==========================
-<script>
+async function importExcel() {
+    const fileInput = document.getElementById("excelFile");
+    if (!fileInput.files.length) return alert("Chưa chọn file!");
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array" });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        let total = rows.length;
+        let done = 0;
+
+        for (let r of rows) {
+            let code = r[0];
+            if (!code) continue;
+
+            document.getElementById("manualCode").value = code;
+            await submitCode();
+
+            done++;
+            document.getElementById("progress").innerText =
+                `Đang tra: ${done}/${total} (${Math.round(done*100/total)}%)`;
+
+            await new Promise(r => setTimeout(r, 300));
+        }
+
+        document.getElementById("progress").innerText = "✅ Hoàn tất import!";
+    };
+
+    reader.readAsArrayBuffer(fileInput.files[0]);
+}
+
+// ==========================
+// 🔥 XUẤT EXCEL ĐÚNG THỨ TỰ
+// ==========================
 function exportExcel() {
-    if (allResults.length === 0) {
-        alert("Không có dữ liệu để xuất Excel!");
-        return;
-    }
+    const table = document.getElementById("result-table");
+    if (table.rows.length <= 1) return alert("Không có dữ liệu!");
 
-    // Thứ tự cột mong muốn
-    const headers = [
-        "SKU",
-        "Tên SP",
-        "Giá gốc",
-        "Giá bán",
-        "KM",
-        "Ngày BD",
-        "Ngày KT"
-    ];
-
-    // Chuyển data theo đúng thứ tự
-    const rows = allResults.map(item => [
-        item.sku || "",
-        item.tensp || "",
-        item.giagoc || "",
-        item.giaban || "",
-        item.km || "",
-        item.ngaybd || "",
-        item.ngaykt || ""
-    ]);
-
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "DATA");
+    const ws = XLSX.utils.table_to_sheet(table);
 
+    XLSX.utils.book_append_sheet(wb, ws, "DATA");
     XLSX.writeFile(wb, "scan_results.xlsx");
 }
 </script>
+
+</body>
+</html>
