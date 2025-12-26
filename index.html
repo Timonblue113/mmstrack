@@ -11,7 +11,6 @@ input, button { padding: 10px; font-size: 18px; margin-top: 10px; width: 100%; }
 table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
 th { background-color: #f0f0f0; }
-#progress { margin-top: 10px; font-weight: bold; }
 </style>
 
 <script src="https://unpkg.com/html5-qrcode"></script>
@@ -22,17 +21,16 @@ th { background-color: #f0f0f0; }
 
 <h2>📦 TRA CỨU SẢN PHẨM</h2>
 
-<h3>1️⃣ Quét mã Barcode (EAN / UPC)</h3>
+<h3>1️⃣ Quét mã Barcode (EAN-13)</h3>
 <div id="reader" style="width:300px;"></div>
 
-<h3>2️⃣ Hoặc nhập SKU (Enter để tra)</h3>
-<input id="manualCode" placeholder="Nhập SKU / UPC…" maxlength="13">
+<h3>2️⃣ Hoặc nhập SKU (7 số)</h3>
+<input id="manualCode" placeholder="Nhập mã 7 số…" maxlength="13">
 <button onclick="submitCode()">Tra cứu</button>
 
 <h3>3️⃣ Tra nhiều mã bằng file Excel</h3>
 <input type="file" id="excelFile" accept=".xlsx,.xls">
-<button onclick="importExcel()">📥 Import & Tra cứu</button>
-<div id="progress"></div>
+<button onclick="importExcel()">📥 Tra cứu từ Excel</button>
 
 <div id="result-box">
 <table id="result-table">
@@ -55,7 +53,7 @@ th { background-color: #f0f0f0; }
 
 <script>
 const SERVER_URL = "http://10.145.2.45:5000/api/scan";
-const scannedSet = new Set(); // chặn trùng
+let allResults = [];
 
 // ==========================
 // 🔥 SCAN BARCODE
@@ -73,13 +71,7 @@ scanner.render(onScanSuccess);
 // ==========================
 async function submitCode() {
     let code = document.getElementById("manualCode").value.trim();
-    if (!code) return;
-
-    if (scannedSet.has(code)) {
-        document.getElementById("manualCode").value = "";
-        return;
-    }
-    scannedSet.add(code);
+    if (!code) return alert("Chưa nhập mã!");
 
     try {
         const res = await fetch(SERVER_URL, {
@@ -89,11 +81,12 @@ async function submitCode() {
         });
 
         const data = await res.json();
+        allResults.push(data);
 
         const tbody = document.querySelector("#result-table tbody");
         const tr = document.createElement("tr");
         tr.innerHTML = `
-            <td>${data.sku || code}</td>
+            <td>${data.sku || ""}</td>
             <td>${data.tensp || ""}</td>
             <td>${data.giagoc || ""}</td>
             <td>${data.giaban || ""}</td>
@@ -106,63 +99,59 @@ async function submitCode() {
         document.getElementById("manualCode").value = "";
 
     } catch (err) {
-        alert("Lỗi server!");
+        alert("Lỗi khi gọi server: " + err);
         console.error(err);
     }
 }
 
 // Enter để tra
-document.getElementById("manualCode").addEventListener("keyup", e => {
+document.getElementById("manualCode").addEventListener("keyup", function(e) {
     if (e.key === "Enter") submitCode();
 });
 
 // ==========================
-// 🔥 IMPORT EXCEL TRA NHIỀU MÃ
+// 🔥 IMPORT EXCEL TRA NHIỀU SKU
 // ==========================
 async function importExcel() {
     const fileInput = document.getElementById("excelFile");
-    if (!fileInput.files.length) return alert("Chưa chọn file!");
+    if (!fileInput.files.length) {
+        alert("Chưa chọn file Excel!");
+        return;
+    }
 
     const reader = new FileReader();
     reader.onload = async function(e) {
         const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, { type: "array" });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-        let total = rows.length;
-        let done = 0;
-
-        for (let r of rows) {
-            let code = r[0];
+        for (let i = 0; i < rows.length; i++) {
+            const code = rows[i][0]; // lấy cột A
             if (!code) continue;
 
             document.getElementById("manualCode").value = code;
             await submitCode();
-
-            done++;
-            document.getElementById("progress").innerText =
-                `Đang tra: ${done}/${total} (${Math.round(done*100/total)}%)`;
-
             await new Promise(r => setTimeout(r, 300));
         }
 
-        document.getElementById("progress").innerText = "✅ Hoàn tất import!";
+        alert("Đã tra cứu xong file Excel!");
     };
 
     reader.readAsArrayBuffer(fileInput.files[0]);
 }
 
 // ==========================
-// 🔥 XUẤT EXCEL ĐÚNG THỨ TỰ
+// 🔥 XUẤT EXCEL ĐÚNG THỨ TỰ BẢNG
 // ==========================
 function exportExcel() {
     const table = document.getElementById("result-table");
-    if (table.rows.length <= 1) return alert("Không có dữ liệu!");
+    if (table.rows.length <= 1) {
+        return alert("Không có dữ liệu để xuất Excel!");
+    }
 
-    const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.table_to_sheet(table);
-
+    const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "DATA");
     XLSX.writeFile(wb, "scan_results.xlsx");
 }
